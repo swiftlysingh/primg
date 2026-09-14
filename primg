@@ -1,0 +1,118 @@
+#!/bin/sh
+
+set -eu
+
+usage() {
+  printf 'Usage: primg IMAGE\n' >&2
+}
+
+if [ "$#" -ne 1 ]; then
+  usage
+  exit 2
+fi
+
+file_path=$1
+
+if [ ! -f "$file_path" ]; then
+  printf 'primg: file not found: %s\n' "$file_path" >&2
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  printf 'primg: curl is required\n' >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'primg: jq is required\n' >&2
+  exit 1
+fi
+
+if [ -z "${PRIMG_TOKEN:-}" ]; then
+  printf 'primg: PRIMG_TOKEN is required\n' >&2
+  exit 1
+fi
+
+host=${PRIMG_HOST:-https://img.swifti.ng}
+host=${host%/}
+
+if [ -z "$host" ]; then
+  printf 'primg: PRIMG_HOST must not be empty\n' >&2
+  exit 1
+fi
+
+# curl treats commas and semicolons in a -F file path as form syntax. Quote
+# the path for curl's parser and escape the two characters meaningful inside
+# that quoted path.
+quoted_file_path=$(printf '%s' "$file_path" | sed 's/\\/\\\\/g; s/"/\\"/g')
+extension=$(printf '%s' "${file_path##*.}" | tr '[:upper:]' '[:lower:]')
+case "$extension" in
+  png)
+    upload_filename=screenshot.png
+    upload_type=image/png
+    ;;
+  jpg|jpeg)
+    upload_filename=screenshot.jpg
+    upload_type=image/jpeg
+    ;;
+  webp)
+    upload_filename=screenshot.webp
+    upload_type=image/webp
+    ;;
+  *)
+    upload_filename=screenshot
+    upload_type=application/octet-stream
+    ;;
+esac
+form_spec=$(printf 'file=@"%s";filename="%s";type=%s' \
+  "$quoted_file_path" "$upload_filename" "$upload_type")
+
+response_file=$(mktemp "${TMPDIR:-/tmp}/primg.XXXXXX")
+trap 'rm -f "$response_file"' EXIT HUP INT TERM
+
+if http_status=$(curl \
+  --silent \
+  --show-error \
+  --output "$response_file" \
+  --write-out '%{http_code}' \
+  --request POST \
+  --header "Authorization: Bearer $PRIMG_TOKEN" \
+  --form "$form_spec" \
+  "$host/upload"
+); then
+  :
+else
+  curl_status=$?
+  printf 'primg: upload request failed (curl exit %s)\n' "$curl_status" >&2
+  exit 1
+fi
+
+case "$http_status" in
+  2[0-9][0-9])
+    ;;
+  *)
+    detail=$(jq -r '
+      if (.error? | type) == "string" then .error
+      elif (.message? | type) == "string" then .message
+      else empty
+      end
+    ' "$response_file" 2>/dev/null || true)
+    if [ -n "$detail" ]; then
+      printf 'primg: server returned HTTP %s: %s\n' "$http_status" "$detail" >&2
+    else
+      printf 'primg: server returned HTTP %s\n' "$http_status" >&2
+    fi
+    exit 1
+    ;;
+esac
+
+if ! image_url=$(jq -er '
+  .url
+  | select(type == "string")
+  | select(test("^https?://[^[:space:]]+$"))
+' "$response_file" 2>/dev/null); then
+  printf 'primg: server returned an invalid response\n' >&2
+  exit 1
+fi
+
+printf '%s\n' "$image_url"

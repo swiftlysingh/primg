@@ -1,0 +1,9 @@
+name = "primg"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+routes = [{ pattern = "img.swifti.ng", custom_domain = true }]
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "primg"
