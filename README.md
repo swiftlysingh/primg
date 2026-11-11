@@ -55,6 +55,9 @@ SCREENSHOT_URL=$(primg /tmp/dashboard.png)
 printf '![Dashboard](%s)\n' "$SCREENSHOT_URL"
 ```
 
+Those exports override `~/.config/primg/env`. Set both when you point the CLI
+at the local server, so a saved production token is not sent there.
+
 `.dev.vars` contains a secret and is ignored by git. Never commit it.
 Wrangler keeps local R2 data under `.wrangler/state`, separately from the
 production bucket. It persists across local restarts. Remove that directory
@@ -78,17 +81,35 @@ npx wrangler secret put PRIMG_TOKEN
 ```
 
 Enter a long random token at the secret prompt. Wrangler stores it as a Worker
-secret without writing it to the repository. Uploads fail closed until it is set.
+secret and does not write it to the repository. Cloudflare will not show that
+secret again. Uploads fail closed until it is set.
 
 The Worker config binds the `primg` bucket as `IMAGES`. Keep that bucket
 private. The Worker is the only public read path.
 
-After deployment, set the same production token in the shell used by the CLI:
+Save the same token for the CLI. Keep `~/.config/primg` mode `0700` and the env
+file mode `0600`:
 
 ```sh
+umask 077
+mkdir -p "$HOME/.config/primg"
+cat > "$HOME/.config/primg/env" <<'EOF'
 export PRIMG_HOST=https://img.swifti.ng
-export PRIMG_TOKEN='the same value entered for npx wrangler secret put PRIMG_TOKEN'
+export PRIMG_TOKEN=the-token-you-just-entered
+EOF
+chmod 700 "$HOME/.config/primg"
+chmod 600 "$HOME/.config/primg/env"
 ```
+
+The CLI uses `PRIMG_TOKEN` and `PRIMG_HOST` from the environment when they are
+set. For either variable that is unset, it reads that value from
+`~/.config/primg/env`. An explicit environment value wins, including an empty
+one and including a local `PRIMG_HOST`. The saved file stays outside the repo.
+
+Reuse the token in that file. Cloudflare secrets cannot be retrieved, so a
+later shell does not need a new Worker token. Run `npx wrangler secret put
+PRIMG_TOKEN` again only if the saved token is lost, then put the new value in
+`~/.config/primg/env`.
 
 The Wrangler config routes `https://img.swifti.ng` to this Worker through a
 top-level `routes` entry above the `[[r2_buckets]]` block:
@@ -98,12 +119,9 @@ top-level `routes` entry above the `[[r2_buckets]]` block:
 routes = [{ pattern = "img.swifti.ng", custom_domain = true }]
 ```
 
-The route is included when you run `npx wrangler deploy`. The CLI can use its
-default host, or you can set it explicitly:
-
-```sh
-export PRIMG_HOST=https://img.swifti.ng
-```
+The route is included when you run `npx wrangler deploy`. The CLI uses
+`https://img.swifti.ng` when `PRIMG_HOST` is unset in both the environment and
+`~/.config/primg/env`.
 
 See Cloudflare's [Wrangler configuration docs](https://developers.cloudflare.com/workers/wrangler/configuration/)
 and [Custom Domains docs](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
