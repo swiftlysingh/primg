@@ -9,8 +9,11 @@ Keep screenshots in a temporary directory, never in the project repo.
 Upload only images safe to share publicly, including their embedded metadata.
 Links are public and do not expire automatically.
 
-Use `PRIMG_TOKEN` from the local credential setup. Never print or commit it.
-If the CLI or token is missing, report the blocker.
+Run `primg` directly. It uses `PRIMG_TOKEN` and `PRIMG_HOST` from the
+environment when they are set, and otherwise reads the unset values from
+`~/.config/primg/env`. Never print, log, or commit the token. If `primg`
+reports that the token is required, report that blocker and do not open the
+credential file.
 
 Upload a local PNG, JPEG, or WebP up to 20 MiB:
 

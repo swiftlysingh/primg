@@ -28,8 +28,54 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+# ~/.config/primg/env fills only PRIMG_TOKEN and PRIMG_HOST that the process
+# left unset. An explicit environment value wins, including an empty one.
+load_saved_config() {
+  if [ -z "${HOME:-}" ]; then
+    return 0
+  fi
+  if [ -n "${PRIMG_TOKEN+x}" ] && [ -n "${PRIMG_HOST+x}" ]; then
+    return 0
+  fi
+
+  config_file=$HOME/.config/primg/env
+  if [ -f "$config_file" ] && [ ! -r "$config_file" ]; then
+    printf 'primg: cannot read ~/.config/primg/env\n' >&2
+    return 0
+  fi
+  if [ ! -f "$config_file" ]; then
+    return 0
+  fi
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $line in
+      ''|\#*) continue ;;
+      'export '*) line=${line#export } ;;
+    esac
+    case $line in
+      PRIMG_TOKEN=*|PRIMG_HOST=*) ;;
+      *) continue ;;
+    esac
+
+    key=${line%%=*}
+    value=${line#*=}
+    case $value in
+      \"*\") value=${value#\"}; value=${value%\"} ;;
+      \'*\') value=${value#\'}; value=${value%\'} ;;
+    esac
+
+    if [ "$key" = PRIMG_TOKEN ] && [ -z "${PRIMG_TOKEN+x}" ]; then
+      PRIMG_TOKEN="$value"
+    elif [ "$key" = PRIMG_HOST ] && [ -z "${PRIMG_HOST+x}" ]; then
+      PRIMG_HOST="$value"
+    fi
+  done < "$config_file"
+}
+
+load_saved_config
+
 if [ -z "${PRIMG_TOKEN:-}" ]; then
-  printf 'primg: PRIMG_TOKEN is required\n' >&2
+  printf 'primg: PRIMG_TOKEN is required. Set it in the environment or in ~/.config/primg/env\n' >&2
   exit 1
 fi
 
